@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "智能 Git 提交信息生成工具",
   "bin": {
-    "smart-commit": "./dist/index.js"
+    "smart-commit": "./dist/index.js",
+    "smart-release": "./dist/release.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
