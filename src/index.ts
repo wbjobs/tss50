@@ -50,7 +50,7 @@ async function showLastCommit(): Promise<void> {
   console.log('─'.repeat(60));
 }
 
-async function getAnalysis(stagedDiffs: GitDiff[], options: CLIOptions): Promise<{ analysis: AnalysisResult; usedLLM: boolean }> {
+async function getAnalysis(stagedDiffs: GitDiff[], options: CLIOptions, cwd: string): Promise<{ analysis: AnalysisResult; usedLLM: boolean }> {
   if (options.llm) {
     const llmOptions: LLMOptions = {
       baseUrl: options.llmUrl,
@@ -61,7 +61,7 @@ async function getAnalysis(stagedDiffs: GitDiff[], options: CLIOptions): Promise
     const available = await isOllamaAvailable(llmOptions);
     if (!available) {
       console.log('⚠️  Ollama 不可用，将使用规则引擎分析');
-      const analysis = analyzeChanges(stagedDiffs);
+      const analysis = analyzeChanges(stagedDiffs, cwd);
       return { analysis, usedLLM: false };
     }
 
@@ -72,13 +72,13 @@ async function getAnalysis(stagedDiffs: GitDiff[], options: CLIOptions): Promise
       return { analysis: llmAnalysis, usedLLM: true };
     } else {
       console.log('⚠️  LLM 分析失败，将使用规则引擎分析');
-      const analysis = analyzeChanges(stagedDiffs);
+      const analysis = analyzeChanges(stagedDiffs, cwd);
       return { analysis, usedLLM: false };
     }
   }
 
   console.log('📋 正在使用规则引擎分析变更...');
-  const analysis = analyzeChanges(stagedDiffs);
+  const analysis = analyzeChanges(stagedDiffs, cwd);
   return { analysis, usedLLM: false };
 }
 
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     console.log();
   }
 
-  const { analysis, usedLLM } = await getAnalysis(gitStatus.staged, options);
+  const { analysis, usedLLM } = await getAnalysis(gitStatus.staged, options, gitService.getCwd());
 
   let commitMessage: CommitMessage;
   try {

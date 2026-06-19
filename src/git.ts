@@ -1,11 +1,18 @@
 import simpleGit, { SimpleGit, StatusResult } from 'simple-git';
 import { GitStatus, GitDiff } from './types';
+import { toPosixPath } from './monorepo';
 
 export class GitService {
   private git: SimpleGit;
+  private cwd: string;
 
   constructor(cwd?: string) {
-    this.git = simpleGit(cwd || process.cwd());
+    this.cwd = cwd || process.cwd();
+    this.git = simpleGit(this.cwd);
+  }
+
+  getCwd(): string {
+    return this.cwd;
   }
 
   async checkGitRepo(): Promise<boolean> {
@@ -21,12 +28,15 @@ export class GitService {
     const status: StatusResult = await this.git.status();
 
     const stagedFiles = status.staged;
-    const unstagedFiles = status.modified.filter(f => !status.staged.includes(f));
-    const untrackedFiles = status.not_added;
+    const unstagedFiles = status.modified
+      .filter(f => !status.staged.includes(f))
+      .map(toPosixPath);
+    const untrackedFiles = status.not_added.map(toPosixPath);
 
     const stagedDiffs: GitDiff[] = [];
 
     for (const file of stagedFiles) {
+      const posixFile = toPosixPath(file);
       const diff = await this.git.diff(['--staged', '--', file]);
 
       let fileStatus: GitDiff['status'] = 'modified';
@@ -39,7 +49,7 @@ export class GitService {
       }
 
       stagedDiffs.push({
-        file,
+        file: posixFile,
         diff,
         status: fileStatus
       });

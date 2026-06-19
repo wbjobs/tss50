@@ -1,4 +1,5 @@
 import { Rule, CommitType, GitDiff, AnalysisResult } from './types';
+import { toPosixPath, getPackageScope, getMonorepoInfo } from './monorepo';
 
 const fileExtensionRules: Array<{ ext: string; type: CommitType; scopeHint?: string }> = [
   { ext: '.ts', type: 'feat', scopeHint: 'core' },
@@ -145,8 +146,15 @@ export function getFileType(file: string): string {
   return ext || 'unknown';
 }
 
-export function getFileScope(file: string): string {
-  const parts = file.split('/');
+export function getFileScope(file: string, cwd: string = process.cwd()): string {
+  const posixFile = toPosixPath(file);
+
+  const packageScope = getPackageScope(posixFile, cwd);
+  if (packageScope) {
+    return packageScope;
+  }
+
+  const parts = posixFile.split('/');
   
   if (parts.length > 1) {
     const firstDir = parts[0];
@@ -158,7 +166,7 @@ export function getFileScope(file: string): string {
     }
   }
   
-  const ext = getFileType(file);
+  const ext = getFileType(posixFile);
   const extRule = fileExtensionRules.find(r => r.ext === ext && r.scopeHint);
   if (extRule) {
     return extRule.scopeHint!;
@@ -184,7 +192,7 @@ export function analyzeByRules(file: string, diff: string): Rule | null {
   return matchedRules.length > 0 ? matchedRules[0] : null;
 }
 
-export function analyzeChanges(stagedDiffs: GitDiff[]): AnalysisResult {
+export function analyzeChanges(stagedDiffs: GitDiff[], cwd: string = process.cwd()): AnalysisResult {
   if (stagedDiffs.length === 0) {
     return {
       suggestedType: 'chore',
@@ -194,13 +202,17 @@ export function analyzeChanges(stagedDiffs: GitDiff[]): AnalysisResult {
     };
   }
 
+  const monorepoInfo = getMonorepoInfo(cwd);
+  const isMonorepo = !!monorepoInfo;
+
   const fileAnalysis = stagedDiffs.map(diff => {
-    const ruleMatch = analyzeByRules(diff.file, diff.diff);
-    const extAnalysis = analyzeByFileExtension(diff.file);
-    const scope = getFileScope(diff.file);
+    const posixFile = toPosixPath(diff.file);
+    const ruleMatch = analyzeByRules(posixFile, diff.diff);
+    const extAnalysis = analyzeByFileExtension(posixFile);
+    const scope = getFileScope(posixFile, cwd);
     
     return {
-      file: diff.file,
+      file: posixFile,
       diff: diff.diff,
       ruleMatch,
       extAnalysis,
@@ -225,7 +237,7 @@ export function analyzeChanges(stagedDiffs: GitDiff[]): AnalysisResult {
     .sort(([, a], [, b]) => b - a)[0][0];
 
   const subjectFiles = stagedDiffs.length <= 3
-    ? stagedDiffs.map(d => d.file.substring(d.file.lastIndexOf('/') + 1)).join(', ')
+    ? fileAnalysis.map(d => d.file.substring(d.file.lastIndexOf('/') + 1)).join(', ')
     : `${stagedDiffs.length} files`;
 
   const topAnalysis = fileAnalysis.sort((a, b) => b.confidence - a.confidence)[0];
@@ -239,7 +251,7 @@ export function analyzeChanges(stagedDiffs: GitDiff[]): AnalysisResult {
     suggestedSubject = `${action} ${subjectFiles}`;
   }
 
-  const reasoning = generateReasoning(fileAnalysis, suggestedType, suggestedScope);
+  const reasoning = generateReasoning(fileAnalysis, suggestedType, suggestedScope, isMonorepo);
 
   return {
     suggestedType,
@@ -274,16 +286,22 @@ function generateReasoning(
     scope: string;
   }>,
   suggestedType: string,
-  suggestedScope: string
+  suggestedScope: string,
+  isMonorepo: boolean = false
 ): string {
   const reasons: string[] = [];
+
+  if (isMonorepo) {
+    reasons.push('[Monorepo] 已检测到 Monorepo 结构，使用包名作为 scope');
+  }
   
   fileAnalysis.slice(0, 3).forEach(analysis => {
     const fileName = analysis.file.substring(analysis.file.lastIndexOf('/') + 1);
+    const scopeInfo = isMonorepo ? ` [scope: ${analysis.scope}]` : '';
     if (analysis.ruleMatch) {
-      reasons.push(`${fileName}: ${analysis.ruleMatch.description}`);
+      reasons.push(`${fileName}: ${analysis.ruleMatch.description}${scopeInfo}`);
     } else {
-      reasons.push(`${fileName}: 基于文件扩展名判断为 ${analysis.finalType}`);
+      reasons.push(`${fileName}: 基于文件扩展名判断为 ${analysis.finalType}${scopeInfo}`);
     }
   });
 
